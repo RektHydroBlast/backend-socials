@@ -7,27 +7,24 @@ WORKDIR /app
 # Install system dependencies including node-gyp requirements
 RUN apk add --no-cache python3 make g++ git
 
+# Install pnpm
+RUN npm install -g pnpm
+
 # Copy package files
-COPY package.json yarn.lock ./
-
-# Install corepack (needed for yarn)
-RUN npm install -g corepack@0.24.1 && corepack enable
-
-# Set yarn to ignore optional dependencies and platform-specific packages
-ENV YARN_IGNORE_OPTIONAL=1
-ENV YARN_IGNORE_PLATFORM=1
+COPY package.json ./
+COPY pnpm-lock.yaml ./
 
 # Install dependencies
-RUN yarn install
+RUN pnpm install --frozen-lockfile --unsafe-perm
 
 # Copy the rest of the application
 COPY . .
 
 # Build the application
-RUN yarn build
+RUN pnpm build
 
 # Expose the port the app runs on
 EXPOSE 3001
 
 # Start the application
-CMD ["yarn", "start"]
+CMD ["pnpm", "start"]

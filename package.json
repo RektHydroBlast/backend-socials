@@ -6,14 +6,13 @@
   "private": true,
   "engines": {
     "node": ">=18.0.0"
-  },
-  "scripts": {
+  },  "scripts": {
     "build": "tsc",
     "start": "node dist/server.js",
     "dev": "nodemon src/server.ts",
     "lint": "eslint . --ext .ts",
-    "postinstall": "yarn build",
-    "production": "yarn install --frozen-lockfile --ignore-optional --ignore-platform && yarn build && yarn start"
+    "postinstall": "pnpm build",
+    "production": "pnpm install --frozen-lockfile && pnpm build && pnpm start"
   },
   "dependencies": {
     "@browserbasehq/stagehand": "^1.14.0",
@@ -40,7 +39,5 @@
     "nodemon": "^3.1.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.4.5",
-    "zod": "^3.24.1"
-  },
-  "packageManager": "yarn@4.9.2"
+    "zod": "^3.24.1"  }
 }
