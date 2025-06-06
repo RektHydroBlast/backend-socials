@@ -16,9 +16,7 @@ RUN apk add --no-cache \
     ca-certificates \
     ttf-freefont
 
-# Set Puppeteer to use installed Chromium
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+
 
 # Use corepack for pnpm
 RUN corepack enable
@@ -29,7 +27,7 @@ COPY package.json ./
 COPY pnpm-lock.yaml ./
 
 # Install dependencies (without postinstall script running build)
-RUN pnpm install --frozen-lockfile --unsafe-perm
+RUN pnpm install --unsafe-perm
 
 # Copy source code AFTER installing dependencies
 COPY . .
