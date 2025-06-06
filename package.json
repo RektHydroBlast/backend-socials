@@ -6,14 +6,16 @@
   "private": true,
   "engines": {
     "node": ">=18.0.0"
-  },  "scripts": {
-    "build": "tsc",
-    "start": "node dist/server.js",
-    "dev": "nodemon src/server.ts",
-    "lint": "eslint . --ext .ts",
-    "postinstall": "pnpm build",
-    "production": "pnpm install --frozen-lockfile && pnpm build && pnpm start"
-  },
+  }, 
+    "scripts": {
+      "build": "tsc",
+      "start": "node dist/server.js",
+      "dev": "nodemon src/server.ts",
+      "lint": "eslint . --ext .ts",
+      "production": "pnpm install --frozen-lockfile && pnpm build && pnpm start"
+    }
+  
+  ,
   "dependencies": {
     "@browserbasehq/stagehand": "^1.14.0",
     "@ibm-cloud/watsonx-ai": "^1.6.7",
@@ -24,11 +26,9 @@
     "@langchain/openai": "^0.5.12",
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
-    "express": "^5.1.0",
+"express": "^4.19.2" ,
     "ibm-cloud-sdk-core": "^4.0.4",
-    "langchain": "^0.3.27",
-    "openai": "^4.28.0"
-  },
+    "langchain": "^0.3.27"  },
   "devDependencies": {
     "@playwright/test": "^1.42.1",
     "@types/cors": "^2.8.17",

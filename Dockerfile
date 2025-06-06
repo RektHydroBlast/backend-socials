@@ -1,33 +1,41 @@
-# Use Node.js LTS version
 FROM node:18-alpine
 
-# Set working directory
 WORKDIR /app
 
-# Install system dependencies including node-gyp requirements
-RUN apk add --no-cache python3 make g++ git
+# Install system dependencies including additional tools for AI packages
+RUN apk add --no-cache \
+    python3 \
+    make \
+    g++ \
+    git \
+    chromium \
+    nss \
+    freetype \
+    freetype-dev \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont
 
-# Enable corepack and use specific pnpm version
+# Set Puppeteer to use installed Chromium
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+
+# Use corepack for pnpm
 RUN corepack enable
-RUN corepack prepare pnpm@8.15.0 --activate
+RUN corepack prepare pnpm@latest --activate
 
-# Copy package configuration files
+# Copy package files
 COPY package.json ./
 COPY pnpm-lock.yaml ./
-COPY .pnpmrc* ./
 
-# Install dependencies with better error handling
-RUN pnpm install --frozen-lockfile --unsafe-perm || \
-    (echo "Frozen lockfile failed, trying without..." && pnpm install --unsafe-perm)
+# Install dependencies (without postinstall script running build)
+RUN pnpm install --frozen-lockfile --unsafe-perm
 
-# Copy the rest of the application
+# Copy source code AFTER installing dependencies
 COPY . .
 
-# Build the application
+# Now build the application
 RUN pnpm build
 
-# Expose the port the app runs on
 EXPOSE 3001
-
-# Start the application
 CMD ["pnpm", "start"]
