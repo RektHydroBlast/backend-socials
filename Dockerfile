@@ -18,7 +18,7 @@ ENV YARN_IGNORE_OPTIONAL=1
 ENV YARN_IGNORE_PLATFORM=1
 
 # Install dependencies
-RUN yarn install --network-timeout 600000
+RUN yarn install
 
 # Copy the rest of the application
 COPY . .
