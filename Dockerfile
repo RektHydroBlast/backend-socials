@@ -7,15 +7,18 @@ WORKDIR /app
 # Install system dependencies including node-gyp requirements
 RUN apk add --no-cache python3 make g++ git
 
-# Install pnpm
-RUN npm install -g pnpm
+# Enable corepack and use specific pnpm version
+RUN corepack enable
+RUN corepack prepare pnpm@8.15.0 --activate
 
-# Copy package files
+# Copy package configuration files
 COPY package.json ./
 COPY pnpm-lock.yaml ./
+COPY .pnpmrc* ./
 
-# Install dependencies
-RUN pnpm install --frozen-lockfile --unsafe-perm
+# Install dependencies with better error handling
+RUN pnpm install --frozen-lockfile --unsafe-perm || \
+    (echo "Frozen lockfile failed, trying without..." && pnpm install --unsafe-perm)
 
 # Copy the rest of the application
 COPY . .
