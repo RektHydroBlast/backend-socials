@@ -6,9 +6,9 @@
     "outDir": "./dist",                           /* Redirect output structure to the directory */
     "esModuleInterop": true,                     /* Enables emit interoperability between CommonJS and ES Modules */
     "forceConsistentCasingInFileNames": false,    /* Disallow inconsistently-cased references to the same file. */
-    "strict": false,                               /* Enable all strict type-checking options */
+    "strict": true,                               /* Enable all strict type-checking options */
     "skipLibCheck": true, 
-    "lib": ["es2020"],
+    "lib": ["es2020", "dom"],
     "allowJs": true,
     "checkJs": false,                        /* Skip type checking of declaration files. */
     "resolveJsonModule": true,                  /* Include modules imported with .json extension */
@@ -29,4 +29,4 @@
     "node_modules",                             /* Exclude node_modules directory */
     "dist"                                      /* Exclude output directory */
   ]
-} 
+}

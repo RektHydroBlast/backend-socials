@@ -1,9 +1,29 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import { HumanMessage, AIMessage, BaseMessage } from '@langchain/core/messages';
+import { EventEmitter } from 'events';
+
+// Increase max listeners significantly to handle LangChain's internal listeners
+EventEmitter.defaultMaxListeners = 100;
+process.setMaxListeners(100);
+
+// Handle AbortSignal specifically
+if (typeof AbortSignal !== 'undefined' && AbortSignal.prototype.addEventListener) {
+  const originalAddEventListener = AbortSignal.prototype.addEventListener;
+  AbortSignal.prototype.addEventListener = function(
+    type: string,
+    listener: EventListenerOrEventListenerObject,
+    options?: boolean | AddEventListenerOptions
+  ) {
+    if ((this as any)._maxListeners === undefined) {
+      (this as any)._maxListeners = 100;
+    }
+    return originalAddEventListener.call(this, type, listener, options);
+  };
+}
 
 // Import the actual nodegraph implementation
-import { nodegraph as getActualLangGraph } from './ai/graph';
+import { createWagerGraph as getActualLangGraph } from './ai/graph';
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -32,15 +52,46 @@ const convertChatHistoryToMessages = (
 
 // Get the compiled graph
 const getLangGraph = () => {
-  return getActualLangGraph();
+  // Create a fresh graph instance for each request to prevent listener accumulation
+  try {
+    return getActualLangGraph();
+  } catch (error) {
+    console.error('Error creating LangGraph:', error);
+    throw error;
+  }
 };
 
 // API Endpoint for Chat Agent
 app.get('/api/agent', async (req: Request, res: Response) => {
-  const { input, chat_history: chatHistoryString } = req.query;
+  // Create a request-specific AbortController to manage cancellation
+  const requestController = new AbortController();
+  const requestSignal = requestController.signal;
+
+  // Clean up on client disconnect
+  req.on('close', () => {
+    requestController.abort();
+  });
+
+  // Set timeout for long-running requests
+  const timeoutId = setTimeout(() => {
+    requestController.abort();
+  }, 120000); // 2 minutes timeout
+
+  const { input, chat_history: chatHistoryString, wallet_address } = req.query;
 
   if (typeof input !== 'string' || !input) {
     return res.status(400).json({ error: 'Input query parameter is required' });
+  }
+
+  // Validate wallet address if provided
+  let walletAddress: string | null = null;
+  if (typeof wallet_address === 'string' && wallet_address) {
+    // Basic validation for wallet address (starts with 0x and is 42 characters for Ethereum)
+    if (wallet_address.startsWith('0x') && wallet_address.length === 42) {
+      walletAddress = wallet_address;
+    } else {
+      return res.status(400).json({ error: 'Invalid wallet address format' });
+    }
   }
 
   let parsedChatHistory: [role: string, content: string][] = [];
@@ -60,75 +111,117 @@ app.get('/api/agent', async (req: Request, res: Response) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
-
   const sendEvent = (data: any) => {
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   };
-  let lastNodeMessage = "";
+  
   let initialNodeComplete = false;
-
   try {
     const graph = getLangGraph();
+    
+    // Prepare initial state with wallet address if provided
+    const initialState: any = {
+      input,
+      chat_history: convertChatHistoryToMessages(parsedChatHistory),
+    };
+
+    // If wallet address is provided, set it as playerA
+    if (walletAddress) {
+      initialState.playerA = {
+        name: "You", // Will be updated later if user provides a name
+        address: walletAddress,
+        isDeposited: false
+      };
+    }
+
     // @ts-ignore - The graph stream types are not properly inferred
     const stream = await graph.stream(
-      {
-        input,
-        chat_history: convertChatHistoryToMessages(parsedChatHistory),
-      },
+      initialState,
       {
         streamMode: "updates",
         recursionLimit: 100,
       }
-    );
-
-    let hasSentLoadingIndicator = false;
+    );    let hasSentLoadingIndicator = false;
 
     for await (const value of stream) {
       if (process.env.NODE_ENV === 'development') {
         console.warn("LangGraph Stream Update:", JSON.stringify(value, null, 2));
-      }      for (const [nodeName, nodeOutput] of Object.entries(value)) {
+      }
+      
+      for (const [nodeName, nodeOutput] of Object.entries(value)) {
         const output = nodeOutput as any;
-
+        
         if (nodeName === 'initial_node' && !hasSentLoadingIndicator) {
-          sendEvent({ action: "append", payload: { type: "LoadingIndicator", props: {} } });
+          sendEvent({ 
+            type: "loading",
+            content: "Processing your request...",
+            wager: null
+          });
           hasSentLoadingIndicator = true;
         }
-
+        
         if (output?.messages?.[0]) {
           const message = output.messages[0];
           
-          if (nodeName === "social_wager_node") {
-            // Store the wager node message for later
-            lastNodeMessage = message;
+          // Check if this is a wager object message
+          const wagerObjectMatch = message.match(/\[OBJ\](.*?)\[\/OBJ\]/);
+          if (wagerObjectMatch && nodeName === "wager_validation_node") {
+            try {
+              const wagerObject = JSON.parse(wagerObjectMatch[1]);
+              // Send wager type message with the wager object
+              sendEvent({
+                type: "wager",
+                content: "Wager created successfully!",
+                wager: wagerObject
+              });
+            } catch (error) {
+              console.error('Error parsing wager object:', error);
+              sendEvent({
+                type: "message",
+                content: "Error creating wager object",
+                wager: null
+              });
+            }
           } else if (nodeName === "initial_node") {
-            // Only stream updates from initial node
+            // Send regular message type
             sendEvent({
-              action: "update",
-              payload: { type: "AIMessageText", props: { content: message } }
+              type: "message",
+              content: message,
+              wager: null
             });
             initialNodeComplete = true;
+          } else if (nodeName === "wager_info_extraction_node" || nodeName === "event_details_extraction_node") {
+            // Send message asking for more info
+            sendEvent({
+              type: "message",
+              content: message,
+              wager: null
+            });
           }
         }
-
-      
-
-       
       }
-    }    // Send the final wager node message if it exists
-    if (lastNodeMessage && initialNodeComplete) {
+    }    // Send stream end event
+    sendEvent({ type: "end" });
+  } catch (error: any) {
+    console.error('Error during LangGraph stream:', error);
+    
+    // Always send a message to the frontend, even if there's an error
+    if (!initialNodeComplete) {
       sendEvent({
-        action: "append",
-        payload: { type: "AIMessageText", props: { content: lastNodeMessage } }
+        type: "message",
+        content: "I apologize, but I encountered an error processing your request. Please try again.",
+        wager: null
       });
     }
     
-    sendEvent({ type: "streamEnd" });
-
-  } catch (error: any) {
-    console.error('Error during LangGraph stream:', error);
     sendEvent({ type: "error", payload: { message: error.message || "An error occurred on the server." } });
-    sendEvent({ type: "streamEnd" });
+    sendEvent({ type: "end" });
   } finally {
+    // Clean up request-specific resources
+    clearTimeout(timeoutId);
+    if (!requestSignal.aborted) {
+      requestController.abort();
+    }
     res.end();
   }
 });
@@ -136,43 +229,36 @@ app.get('/api/agent', async (req: Request, res: Response) => {
 app.listen(port, () => {
   console.warn(`Backend server listening at http://localhost:${port}`);
   console.warn(`Try: http://localhost:${port}/api/agent?input=hello&chat_history=[]`);
+  console.warn(`With wallet: http://localhost:${port}/api/agent?input=hello&chat_history=[]&wallet_address=0x1234567890123456789012345678901234567890`);
 });
 
-// Reminder: Create a file like \`backend/src/ai/graph.ts\` for your LangGraph logic.
-// Example content for backend/src/ai/graph.ts:
-/*
-import { StateGraph, END } from "@langchain/langgraph";
-import { RunnableLambda } from "@langchain/core/runnables";
-import { BaseMessage } from "@langchain/core/messages";
+// Periodic cleanup to prevent listener accumulation
+setInterval(() => {
+  // Force garbage collection of unused listeners
+  if (global.gc) {
+    global.gc();
+  }
+}, 60000); // Every minute
 
-interface AgentState { 
-  input: string; 
-  chat_history?: BaseMessage[]; 
-  result?: string; 
-  contractData?: string; 
-}
+// Graceful shutdown handling
+process.on('SIGINT', () => {
+  console.log('\nReceived SIGINT. Graceful shutdown...');
+  process.exit(0);
+});
 
-export function nodegraph() {
-  const graph = new StateGraph<AgentState>({
-    channels: {
-      input: { value: null },
-      chat_history: { value: null },
-      result: { value: null },
-      contractData: { value: null },
-    }
-  });
+process.on('SIGTERM', () => {
+  console.log('\nReceived SIGTERM. Graceful shutdown...');
+  process.exit(0);
+});
 
-  graph.addNode('initial_node', new RunnableLambda({ 
-    func: async (state: AgentState) => ({ result: \`Actual Graph: Processing: \${state.input}\` })
-  }));
-  graph.addNode('escrow_node', new RunnableLambda({ 
-    func: async (state: AgentState) => ({ contractData: \`// Actual Graph: Smart Contract for \${state.input}\` })
-  }));
-  
-  graph.setEntryPoint('initial_node');
-  graph.addEdge('initial_node', 'escrow_node');
-  graph.addEdge('escrow_node', END);
-  
-  return graph.compile();
-}
-*/ 
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
+});
+
